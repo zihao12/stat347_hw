@@ -1,0 +1,145 @@
+---
+title: "final"
+author: "zihao12"
+date: "2021-03-18"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+
+Load data
+```{r}
+rm(list = ls())
+library(MASS)
+load("data/authorship.RData")
+```
+
+## Problem 1
+First take a look at the distribution of words counts in the two authors. 
+```{r}
+par(mfrow = c(3, 2))
+words <- c("all", "no", "upon")
+names <- c("Hamilton", "Madison")
+for(word in words){
+  for(name in names){
+    hist(counts[author == name, word], breaks = 30, xlab = "count", 
+         main = sprintf("%s in %s", word, name))
+  }
+}
+```
+
+Since these are counts that could be more than $1$, Binomial model is not very suitable. Below I will try fitting with Poisson and Negative Binomial. 
+
+Prepare data from regression
+```{r}
+dat <- data.frame(all = as.numeric(counts[, "all"]),
+                  no = as.numeric(counts[, "no"]),
+                  upon = as.numeric(counts[, "upon"]),
+                  author = author)
+dat_long = gather(dat, word, y, all:upon)
+head(dat_long)
+```
+
+Below I fit data with Poisson and Negative Binomial. It's equivalent to fitting separate model for each word and each auther (but the result is put together). 
+
+```{r}
+dat_long_sub = dat_long[dat_long$author %in% names, ]
+fit.poisson <- glm(y ~ author + word, data = dat_long_sub, family = poisson())
+fit.nb <- glm.nb(y ~ author + word, data = dat_long_sub)
+
+summary(fit.poisson)
+summary(fit.nb)
+
+1 - pchisq(2 * as.numeric((logLik(fit.nb) - logLik(fit.poisson))), df = df.residual(fit.poisson) - df.residual(fit.nb))
+```
+The likelihood ratio test shows that Poisson model is not sufficient, so we need to use negative binomial.     
+
+## Problem 2
+
+### (a)
+Below I fit a binomial model
+```{r}
+idx <- which(author %in% names)
+for(word in words){
+  w_count = as.numeric(counts[, word])
+  data_grouped <- data.frame(n = length[idx],
+                             x = author[idx],
+                             y = w_count[idx],
+                             other = length[idx] - w_count[idx])
+  coeffs = summary(glm(cbind(y, other) ~ x, data = data_grouped, 
+                       family = binomial(link = logit)))$coefficients
+  print(sprintf("word ` %s: `", word))
+  print(coeffs)
+  if(word == "upon"){
+    prob1 = plogis(q = sum(coeffs[,1]), lower.tail = TRUE)
+    prob2 = plogis(q = coeffs[1,1], lower.tail = TRUE)
+    print(sprintf("expected `upon` freq in Hamilton: %s", prob2))
+    print(sprintf("expected `upon` freq in Madison: %s", prob1))
+  }
+}
+
+```
+
+
+### (b)
+Use probit link. 
+```{r}
+idx <- which(author %in% names)
+word = "upon"
+w_count = as.numeric(counts[, word])
+data_grouped <- data.frame(n = length[idx],
+                           x = author[idx],
+                           y = w_count[idx],
+                           other = length[idx] - w_count[idx])
+coeffs = summary(glm(cbind(y, other) ~ x, data = data_grouped, 
+                     family = binomial(link = probit)))$coefficients
+print(coeffs)
+
+prob1 = pnorm(q = sum(coeffs[,1]), lower.tail = TRUE)
+prob2 = pnorm(q = coeffs[1,1], lower.tail = TRUE)
+print(sprintf("expected `upon` freq in Hamilton: %s", prob2))
+print(sprintf("expected `upon` freq in Madison: %s", prob1))
+```
+
+* Although it seems that the estimated the coefficients are different for `logit` and `probit`, their corresponding `p_i` or expected word frequency for "upon" is similar. We cannot directly compare the value of coefficients as their interpretations are different: in `logit` we can interpret $\beta_1$ as log odds ratio, but in `probit` we can't. 
+
+* The p-values are slightly different but both are very small. 
+
+<!-- ```{r} -->
+<!-- counts_freq = diag(1/length) %*% counts -->
+<!-- word = "upon" -->
+<!-- data_EY = data.frame(y = as.numeric(counts_freq[idx, word]), -->
+<!--                      x = author[idx]) -->
+<!-- fit.lm = lm(y ~ x, data = data_EY) -->
+<!-- coeffs = summary(fit.lm)$coefficients -->
+<!-- print(coeffs) -->
+<!-- ``` -->
+
+### (c)
+```{r}
+resid(fit)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
