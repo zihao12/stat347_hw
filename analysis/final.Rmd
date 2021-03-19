@@ -9,9 +9,11 @@ editor_options:
 
 
 Load data
-```{r}
+```{r message=FALSE, warning=FALSE}
 rm(list = ls())
 library(MASS)
+library(tidyverse)
+library(aod)
 load("data/authorship.RData")
 ```
 
@@ -78,7 +80,6 @@ for(word in words){
     print(sprintf("expected `upon` freq in Madison: %s", prob1))
   }
 }
-
 ```
 
 
@@ -117,12 +118,71 @@ print(sprintf("expected `upon` freq in Madison: %s", prob1))
 <!-- ``` -->
 
 ### (c)
+
 ```{r}
-resid(fit)
+par(mfrow = c(2,2))
+idx <- which(author %in% names)
+for(word in words){
+  w_count = as.numeric(counts[, word])
+  data_grouped <- data.frame(n = length[idx],
+                             x = author[idx],
+                             y = w_count[idx],
+                             other = length[idx] - w_count[idx])
+  mod = glm(cbind(y, other) ~ x, data = data_grouped, 
+                       family = binomial(link = logit))
+  pearson_chisq = 1 - pchisq(sum(resid(mod, type = "pearson")^2), mod$df.residual)
+  hist(resid(mod), breaks = 25, 
+       main = sprintf("resid for word %s (p value %f)", word, pearson_chisq))
+}
 ```
 
+From the Pearson chi-square test result we can see there is severe lack of fit; from the residual plots we can see there are many large residuals. These sugguest over-dispersion. 
+
+### (d)
+The overdispersion may be due to unobserved covariates, clusters with samples etc. One easy way to implememt is to use pseudo-likelihood (using the beta-binomial type variance)
+
+Need to check if residual below means the right thing
+
+```{r}
+par(mfrow = c(2,2))
+idx <- which(author %in% names)
+for(word in words){
+  w_count = as.numeric(counts[, word])
+  data_grouped <- data.frame(n = length[idx],
+                             x = author[idx],
+                             y = w_count[idx],
+                             other = length[idx] - w_count[idx])
+  mod = quasibin(cbind(y, other) ~ x, data = data_grouped)
+  hist(mod@fm$residuals, breaks = 25)
+}
+```
+
+## Problem 3
+I use the observed word frequency as predictor to construct a binary classifier
+```{r}
+words_pred <- c("kind", "extent", "according", "probability", "apt")
+idx_train <- which(author %in% names)
+idx_pred <- which(author == "Uncertain")
+
+counts_freq = diag(1/length) %*% counts
+X_train = counts_freq[idx_train, words_pred]
+col_names = colnames(X_train)
+X_train = matrix(as.numeric(unlist(X_train)),nrow=nrow(X_train))
+colnames(X_train) = col_names
+
+y_train <- as.integer((author[idx_train] == "Hamilton"))
+data_train = as.data.frame(cbind(y_train, X_train))
+
+X_test = counts_freq[idx_pred, words_pred]
+X_test = matrix(as.numeric(unlist(X_test)),nrow=nrow(X_test))
+colnames(X_test) = col_names
 
 
+mod <- glm(y_train ~ ., data = data_train, family = binomial())
+summary(mod)
+
+predict.glm(mod, newdata = as.data.frame(X_test))
+```
 
 
 
